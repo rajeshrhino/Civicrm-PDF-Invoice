@@ -1,0 +1,38 @@
+/**
+* Copyright (C) 2010 Miller Technology
+* @license GNU General Public License version 2 or later
+*/
+
+body {color : #333; background-color : #fff; margin-top: 10px;margin-right: 25px;  margin-left: 25px; margin-bottom: 0; padding : 0; font : 13px verdana, arial, helvetica, sans-serif; } 
+
+h1 { margin : 0 0 15px; padding : 0; font-size : 28px; font-weight : 900; } 
+
+h2 { font : bold 15px verdana, arial, helvetica, sans-serif; margin : 0 0 5px; padding : 0; } 
+
+p { font : 11px/20px verdana, arial, helvetica, sans-serif; margin : 0 0 16px; padding : 0; } 
+
+table { border-collapse: collapse; padding :0px; border-spacing: 0px; width : 100%; }
+
+.borderedtable {
+        text-align:justify;
+        border:black 1px solid;
+        border-spacing: 0px;
+        width : 100%;
+        }
+
+td { padding-right:10px;
+        padding-left:10px;}
+        
+.borderedcell { 
+	padding-right:10px;
+        padding-left:10px;
+	padding-top:5px;
+        padding-bottom:5px;
+        border: 1px solid }
+        
+
+.logo{ width : 232px; height : 88px; }
+
+.red { color:Red; }
+
+.footer { font : 30px verdana, arial, helvetica, sans-serif; color: #153E7E; text-align:justify; }

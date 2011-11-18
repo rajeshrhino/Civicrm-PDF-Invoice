@@ -1,0 +1,646 @@
+<?php
+// $Id: civicrm_invoice.module,v 1.0 2010/10/21 04:07:11 posco Exp $
+
+/**
+* Copyright (C) 2010 Miller Technology
+* @license GNU General Public License version 2 or later
+* 
+* @file
+* Create Invoices for contributions
+*/
+
+## Company specific information to be displayed in the PDF invoice
+define( "CIVICRM_INVOICE_COMPANY_NAME",                     "Company Name, Foundation of xxxx in xxxxxx" );
+define( "CIVICRM_INVOICE_COMPANY_ADDRESS_LINE1",            "Street Address<br />Additional Address" );
+define( "CIVICRM_INVOICE_COMPANY_CITY",                     "City" );
+define( "CIVICRM_INVOICE_COMPANY_POST_CODE",                "Post Code" );
+define( "CIVICRM_INVOICE_COMPANY_TELEPHONE",                "+44 (0)0000 000000" );
+define( "CIVICRM_INVOICE_COMPANY_FAX",                      "+44 (0)1111 111111" );
+define( "CIVICRM_INVOICE_COMPANY_EMAIL",                    "email@company.com" );
+define( "CIVICRM_INVOICE_COMPANY_WEBSITE",                  "http://www.company.com" );
+define( "CIVICRM_INVOICE_COMPANY_VAT_REGISTRATION_NUMBER",  "BG xxx x xxx xx" );
+define( "CIVICRM_INVOICE_COMPANY_FOOTER_NOTE",              "COMPANY operates a quality management system accredited to ISO 9001: 2008 for all its activities.");
+
+## Bank details to which the payment to be made
+define( "CIVICRM_INVOICE_BANK_NAME",                        "BANK NAME" );
+define( "CIVICRM_INVOICE_ACCOUNT_NAME",                     "BANK ACCOUNT NAME" );
+define( "CIVICRM_INVOICE_ACCOUNT_NUMBER",                   "000000xx00" );
+define( "CIVICRM_INVOICE_BANK_SORT_CODE",                   "xx-xx-xx" );
+define( "CIVICRM_INVOICE_BANK_SWIFT_CODE",                  "AAAA AA 1A" );
+
+
+/**
+* Display help and module information
+* @param path which path of the site we're displaying help
+* @param arg array that holds the current path as would be returned from arg() function
+* @return help text for the path
+*/
+
+function civicrm_invoice_help($path, $arg) {
+
+    $output = '';  //declare your output variable
+    switch ($path) {
+      case "admin/help#civicrm_invoice":
+        $output = '<p>'.  t("Displays links to nodes created on this date") .'</p>';
+        break;
+    }
+    return $output;
+
+} // function civicrm_invoice_help
+
+
+/**
+* Valid permissions for this module
+* @return array An array of valid permissions for this module
+*/
+//function civicrm_invoice_perm() {
+//  return array('access civicrm invoice');
+//} // function civicrm_invoice_perm()
+
+/**
+* Set php, template directories path for this module
+*/
+function civicrm_invoice_civicrm_config( &$config ) {
+
+    $template =& CRM_Core_Smarty::singleton( );
+
+    $civicrm_invoiceRoot = dirname( __FILE__ ) . DIRECTORY_SEPARATOR;
+
+    $civicrm_invoiceDir = $civicrm_invoiceRoot . "templates";
+    
+    if ( is_array( $template->template_dir ) ) {
+        array_unshift( $template->template_dir, $civicrm_invoiceDir );
+    } else {
+        $template->template_dir = array( $civicrm_invoiceDir, $template->template_dir );
+    }
+    //print_r ($template->template_dir);exit;
+       
+    // also fix php include path
+    $include_path = $civicrm_invoiceRoot . PATH_SEPARATOR . get_include_path( );
+    set_include_path( $include_path );
+}
+
+function civicrm_invoice_civicrm_pageRun( &$page ) {
+    
+    $action = CRM_Utils_Array::value('action', $_GET, '');
+    $name = $page->getVar( '_name' );
+    
+   if ( $name == 'CRM_Contribute_Page_Tab' AND $action == 'view_invoice' ) {
+        $contribution_id = $page->getVar( '_id' );
+        if(!empty($contribution_id)) {
+            civicrm_invoice_civicrm_pageRun_show_Contribution_Invoice( $contribution_id );
+        
+       }
+  }
+  if ( $name == 'CRM_Contribute_Page_Tab' AND $page->getVar( '_action' ) == 4 ) {
+       $contribution_id = $page->getVar( '_id' );   
+       $sql = "
+SELECT contribution_id FROM civicrm_invoice
+WHERE contribution_id = %1                                        
+";
+      $params       = array( '1'=> array($contribution_id , 'Integer') );                                      
+      $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+      if ($dao->fetch()) {
+        $page->assign('showInvoice' , 1);
+      }
+  }    
+    
+}
+
+function civicrm_invoice_civicrm_pageRun_show_Contribution_Invoice ( $contribution_id , $calling = "internal") {
+
+    ## Get the contribution type id, to differentiate between Member Dues & Event Fee  
+    $sql = "
+SELECT civicrm_contribution.contribution_type_id
+FROM   civicrm_contribution
+WHERE  civicrm_contribution.id = %1
+";
+
+    $params = array( 1 => array( $contribution_id, 'Integer' ) );
+    $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+
+    while ( $dao->fetch( ) ) {
+        $contribution_type_id = $dao->contribution_type_id;
+    }
+    
+    $invoice_sql = "
+SELECT id
+, invoice_no
+FROM
+civicrm_invoice
+WHERE civicrm_invoice.contribution_id =  {$contribution_id}
+AND date_cancelled IS NULL
+";
+
+    $dao = CRM_Core_DAO::executeQuery( $invoice_sql);
+
+    while ( $dao->fetch( ) ) {
+        $invoiceID = $dao->id;
+    }
+  
+    if( empty( $invoiceID ) ) {
+        $invoice = civicrm_invoice_civicrm_pageRun_make_Contribution_Invoice( $contribution_id );
+        civicrm_invoice_civicrm_pageRun_create_Invoice( $invoice );
+    }
+
+    ## Invoice record inserted in databse, if no invoice records exists for the contribution
+    ## Now get the invoice number
+    $dao = CRM_Core_DAO::executeQuery( $invoice_sql, $params );
+
+    while ( $dao->fetch( ) ) {
+        $invoiceID = $dao->id;
+    }
+
+    //print "<br /> show contribution invoice invoiceID=".$invoiceID;exit;
+
+    if($calling == "external"){	
+        ## like calling from cron job
+        $pdfContent_obj_arr = civicrm_invoice_civicrm_pageRun_show_Invoice( $invoiceID , $calling);
+        return array($pdfContent_obj_arr, $contribution_id);
+    }
+    else{
+        ## Generation of Invoice in Civi Admin Panel
+        civicrm_invoice_civicrm_pageRun_show_Invoice($invoiceID);
+    }
+}
+
+function civicrm_invoice_civicrm_pageRun_make_Contribution_Invoice( $contribution_id) {
+
+    require_once 'CRM/Contribute/DAO/Contribution.php';
+    $dao =& new CRM_Contribute_DAO_Contribution( );
+    if(! $dao->get($contribution_id)){
+        CRM_Core_Error::debug_log_message( "Could not find contrubution: $contributionID" );
+        echo "Failure: Could not find contact: $contribution_id<p>";
+        return false;
+    }
+
+    ## Check whether the contact exists
+    require_once 'CRM/Contact/DAO/Contact.php';
+    $contactDAO =& new CRM_Contact_DAO_Contact( );
+		if(!$contactDAO->get($dao->contact_id)){
+        CRM_Core_Error::debug_log_message( "Could not find contact: $contactDAO->id" );
+        echo "Failure: Could not find contact: $contactDAO->id<p>";
+        return false;
+		}
+
+    ## Get contact's address
+    require_once 'CRM/Core/DAO/Address.php';
+    $addressDAO =& new CRM_Core_DAO_Address( );
+    $addressDAO->whereAdd("contact_id = {$dao->contact_id} AND is_primary = 1");
+    $addressDAO->contact_id = $dao->contact_id;
+    $addressDAO->find( true );
+		//print_r($addressDAO);exit;
+		
+	  ## Get contact's email address
+	  require_once 'CRM/Core/DAO/Email.php';
+	  $emailDAO =& new CRM_Core_DAO_Email( );
+		$contact_id = $dao->contact_id;
+		$emailDAO->contact_id = $contact_id;
+		$emailDAO->find( true );			
+    //print_r($emailDAO); exit;
+    
+    ## Check whether the contribution is paid
+    $contribSQL = "
+SELECT is_pay_later from civicrm_contribution
+WHERE id = {$contribution_id}
+";
+    $contribDAO = CRM_Core_DAO::executeQuery( $contribSQL, $contribParams );
+    $contribDAO->fetch( );
+    //echo $contribDAO->is_pay_later;exit;
+
+    ## Get the name of the contribution type
+    require_once "CRM/Contribute/DAO/ContributionType.php";
+	  $contributionType =& new CRM_Contribute_DAO_ContributionType();
+	  $contributionType->id = $dao->contribution_type_id;
+	  $contributionType->find(true);
+
+    ## Get the note for the contribution    
+    require_once 'CRM/Core/DAO/Note.php';
+    $noteDAO =& new CRM_Core_DAO_Note( );
+    $noteDAO->entity_table = 'civicrm_contribution';
+    $noteDAO->entity_id = $contributionID;
+    if ( ! $noteDAO->find( true ) ) {
+      // Do nothing
+      // We dont care if the contribution doesn't have a note
+    }
+    
+    $invoice['invoice_no']      = $contribution_id;
+    $invoice['contribution_id'] = $contribution_id;
+    $invoice['date_created']    = CRM_Utils_Date::getToday( null, 'YmdHis' );
+    $invoice['addressed_to']    = $contactDAO->display_name;
+		$invoice['address_line1']   = $addressDAO->street_address;
+		$invoice['address_line2']   = $addressDAO->supplemental_address_1;
+		$invoice['address_line3']   = $addressDAO->supplemental_address_2;
+		$invoice['city']            = $addressDAO->city;
+		$invoice['postcode']        = $addressDAO->postal_code;        
+
+    if ( $addressDAO->country_id != '' )
+		    $invoice['country']               = CRM_Core_PseudoConstant::country( $addressDAO->country_id, false );
+
+    $invoice['fee_amount']      = $dao->total_amount;
+    $invoice['net_amount']      = $dao->net_amount;
+    $invoice['invoice_amount']  = $dao->total_amount;
+    
+    
+    if ( is_object($emailDAO) )
+		    $invoice['email_invoice_address']  = $emailDAO->email;
+		else
+			  $invoice['email_invoice_address']  = '';
+    
+    $todaysDate                 = CRM_Utils_Date::getToday( null, 'YmdHis' );
+    $invoice['date_raised']     = $todaysDate;
+    $due_date                   = date('Y-m-d', strtotime ("+30 days $todaysDate"));
+    
+    ## Checking is_pay_later field in contribution tables to find whether the payment has been made or not
+    ## If is_pay_later is set, set the payment due date for the invoice  
+    if ($contribDAO->is_pay_later == 1)
+        $invoice['date_due']        = CRM_Utils_Date::isoToMysql($due_date);
+    
+    ## If is_pay_later is not set, then the payment has been made online
+    ## Display Paid in the bottom of the invoice 
+    if ($contribDAO->is_pay_later == 0)
+        $invoice['invoice_paid']    = "Invoice has been paid.";
+    
+    $invoice['item_descr_column_heading'] = "Description";
+    
+	  $itemIndex++;
+		$invoice['item'][$itemIndex]['description']   = $contactDAO->display_name." : ".$contributionType->name;
+    $invoice['item'][$itemIndex]['qty']           = 1;
+    $invoice['item'][$itemIndex]['fee_amount']    = $dao->total_amount;
+    $invoice['item'][$itemIndex]['vat']           = '0.00';
+
+    //echo "<pre>";print_r ($invoice);echo "</pre>";exit;    
+    return $invoice;        
+} 
+
+function civicrm_invoice_civicrm_pageRun_create_Invoice( $invoice ){
+
+    ## Create an invoice record in database, if one doesn't already exist
+    require_once 'CRM/Utils/Date.php';
+    
+    $i = 0;
+
+    $sql_columns = "
+INSERT INTO civicrm_invoice
+    (id";
+    $sql_values = "
+VALUES
+    (NULL";
+
+    $params  = array();
+
+    ## Loop through the invoice array and create the relevant insert statement
+    foreach ($invoice as $key => $value) {
+        ## Only add the item to the array if it is set
+        if (!(empty($value))&&($key <> 'item')) {
+            $sql_columns = $sql_columns." ,".$key;
+            $sql_values = $sql_values." ,%".$i;
+
+            ## Set the data type and anything else
+            switch ($key) {
+                case 'date_created':
+                case 'date_raised':
+                case 'date_due':
+                    array_push($params, array( CRM_Utils_Date::isoToMysql( $value ), 'Timestamp' ) );
+                    break;
+                case 'participant_id':
+                    array_push($params, array( $value, 'Integer' ) );
+                    break;
+                default:
+                    array_push($params, array( $value, 'String' ) );
+                    break;
+            }
+
+        $i++;
+
+        }
+    }
+
+    ## For debugging the params arrray
+    /*foreach ($params as $key => $value) {
+        CRM_Core_Error::debug_log_message( 'params key = '.$key, $out = false );
+        CRM_Core_Error::debug_log_message( 'params value = '.$value, $out = false );
+    }
+    */
+
+    $sql_columns = $sql_columns." )";
+    $sql_values = $sql_values." )";
+    $sql = $sql_columns.$sql_values;
+    //echo "<pre>";print_r ($params);exit;echo "</pre>";
+        
+    # CRM_Core_Error::debug_log_message( 'SQL Statement = '.$sql, $out = false );
+
+    $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+
+    ## Find the created invoice id so that we can pass it onto the item lines
+    $sql = "
+SELECT id
+FROM
+civicrm_invoice
+WHERE
+civicrm_invoice.invoice_no =  %1
+";
+
+    $params = array( 1 => array( $invoice['invoice_no'], 'String' ) );
+    $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+
+    while ( $dao->fetch( ) ) {
+        $invoiceID = $dao->id;
+    }
+    
+    civicrm_invoice_civicrm_pageRun_create_Invoice_Items( $invoiceID, $invoice['item'] );
+}
+
+function civicrm_invoice_civicrm_pageRun_create_Invoice_Items( $invoiceID, $invoiceItems ){
+    CRM_Core_Error::debug_log_message( 'in createInvoiceItems', $out = false );
+
+    ## Create an invoice if one doesn't already exist
+    require_once 'CRM/Utils/Date.php';
+
+    ## Loop through the invoicitems 
+    foreach ($invoiceItems as $invoiceItem) {
+        CRM_Core_Error::debug_log_message( 'First Loop', $out = false );
+
+        $i = 0;
+
+        $sql_columns = "
+INSERT INTO civicrm_invoice_item
+(id ,invoice_id";
+        $sql_values = "
+VALUES (NULL ,".$invoiceID;
+
+        $params  = array();
+
+        ## Loop through the item array and create the relevant insert statement
+        foreach ($invoiceItem as $key => $value) {
+            ## Only add the item to the array if it is set
+            if (!(empty($value))) {
+                $sql_columns = $sql_columns." ,".$key;
+                $sql_values = $sql_values." ,%".$i;
+
+                ## Set the data type and anything else
+                switch ($key) {
+                    case 'date_created':
+                    case 'date_raised':
+                    case 'date_due':
+                        array_push($params, array( CRM_Utils_Date::isoToMysql( $value ), 'Timestamp' ) );
+                        break;
+                    case 'participant_id':
+                        array_push($params, array( $value, 'Integer' ) );
+                        break;
+                    default:
+                        array_push($params, array( $value, 'String' ) );
+                        break;
+                }
+
+                $i++;
+
+            }
+        }
+
+        ## For debugging the params arrray
+        /*foreach ($params as $key => $value) {
+            CRM_Core_Error::debug_log_message( 'params key = '.$key, $out = false );
+            CRM_Core_Error::debug_log_message( 'params value = '.$value, $out = false );
+        }*/
+
+        $sql_columns = $sql_columns." )";
+        $sql_values = $sql_values." )";
+        $sql = $sql_columns.$sql_values;
+        
+        CRM_Core_Error::debug_log_message( 'SQL Statement = '.$sql, $out = false );
+
+        $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+      }
+}
+
+
+function civicrm_invoice_civicrm_pageRun_show_Invoice($invoiceID , $calling = "internal") {
+
+    $sql = "
+SELECT    a.invoice_no
+,         a.date_created
+,         a.date_raised
+,         a.date_due
+,         a.addressed_to
+,         a.attention_of
+,         a.address_line1
+,         a.address_line2
+,         a.address_line3
+,         a.town
+,         a.city
+,         a.postcode
+,         a.country
+,         a.currency
+,         a.special_instructions
+,         a.item_descr_column_heading
+,         a.invoice_amount
+,         a.net_amount
+,         a.fee_amount
+,         a.language_id
+,         a.company_tax_no
+,         a.post_invoice
+,         a.invoice_paid
+,         a.additional_message
+,		  a.email_invoice_address
+,		  a.email_school_address
+FROM       civicrm_invoice a
+WHERE      a.id = %1
+ORDER BY   a.invoice_no asc
+";
+
+    $params  = array( 1 => array( $invoiceID   , 'Integer' ));
+    $dao = CRM_Core_DAO::executeQuery( $sql, $params );
+    while ( $dao->fetch( ) ) {
+        $invoiceNo = $dao->invoice_no;
+    }
+    if( empty( $invoiceNo ) ) {
+        die( "\n\n Invoice {$invoice_no} not found!\n\n" );
+    }
+    
+    $template =& CRM_Core_Smarty::singleton( );
+
+    ## General Labels to be displayed in the PDF invoice 
+    $InvoiceTitle = "Invoice";
+    $InvoiceNoLabel ="Invoice Number";
+    $InvoiceDateLabel ="Invoice Date";
+    $InvoiceDueDateLabel ="Payment Due";
+    $YourReferenceLabel ="Purchase Order Reference";
+    $TotalPayableLabel ="Total Payable";
+    $PaymentDetailsLabel ="Payment Details";
+    $BankLabel ="Bank";
+    $BankAddressLabel ="";
+    $delegatePlaceText ="Delegate Place";
+    $PaymentInstructions = "<b>Euro payment </b>(delegates outside UK):";
+    $InvoiceHelpTextPreInvoiceNo = "Please quote your invoice number</span>&nbsp;";
+    $InvoiceHelpTextPostInvoiceNo = "<br /><span class='red'>with your payment and pay bank charges";
+    $AccountNameLabel = "Account Name";
+    $AccountNumberLabel = "Account Number";
+    $InvoiceEmailedLabel = "Invoice emailed to";
+    $PostCopyLabel = "Please also post a copy";
+
+    $template->assign( 'CompanyName', CIVICRM_INVOICE_COMPANY_NAME);
+    $template->assign( 'CompanyAddressLine1', CIVICRM_INVOICE_COMPANY_ADDRESS_LINE1);
+    $template->assign( 'CompanyCity', CIVICRM_INVOICE_COMPANY_CITY);
+    $template->assign( 'CompanyPostCode', CIVICRM_INVOICE_COMPANY_POST_CODE);
+    $template->assign( 'CompanyTelephone', CIVICRM_INVOICE_COMPANY_TELEPHONE);
+    $template->assign( 'CompanyFax', CIVICRM_INVOICE_COMPANY_FAX);
+    $template->assign( 'CompanyEmail', CIVICRM_INVOICE_COMPANY_EMAIL);
+    $template->assign( 'CompanyWebsite', CIVICRM_INVOICE_COMPANY_WEBSITE);
+    $template->assign( 'CompanyVatRegistrationNumber', CIVICRM_INVOICE_COMPANY_VAT_REGISTRATION_NUMBER);
+    $template->assign( 'CompanyFooterNode', CIVICRM_INVOICE_COMPANY_FOOTER_NOTE);
+    
+    $template->assign( 'BankName', CIVICRM_INVOICE_BANK_NAME);
+    $template->assign( 'BankAccountName', CIVICRM_INVOICE_ACCOUNT_NAME);
+    $template->assign( 'BankAccountNumber', CIVICRM_INVOICE_ACCOUNT_NUMBER);
+    $template->assign( 'BankSortCode', CIVICRM_INVOICE_BANK_SORT_CODE);
+    $template->assign( 'BankSwiftCode', CIVICRM_INVOICE_BANK_SWIFT_CODE);
+    
+    $template->assign( 'InvoiceTitle', $InvoiceTitle);
+    $template->assign( 'InvoiceNoLabel', $InvoiceNoLabel);
+    $template->assign( 'InvoiceDateLabel', $InvoiceDateLabel);
+    $template->assign( 'InvoiceDueDateLabel', $InvoiceDueDateLabel);
+    $template->assign( 'YourReferenceLabel', $YourReferenceLabel);
+    $template->assign( 'TotalPayableLabel', $TotalPayableLabel);
+    $template->assign( 'PaymentDetailsLabel', $PaymentDetailsLabel);
+    $template->assign( 'BankLabel', $BankLabel);
+    $template->assign( 'BankAddressLabel', $BankAddressLabel);
+    $template->assign( 'PaymentInstructions', $PaymentInstructions);
+    $template->assign( 'delegatePlaceText', $delegatePlaceText);
+    $template->assign( 'InvoiceHelpTextPreInvoiceNo', $InvoiceHelpTextPreInvoiceNo);
+    $template->assign( 'InvoiceHelpTextPostInvoiceNo', $InvoiceHelpTextPostInvoiceNo);
+    $template->assign( 'AccountNameLabel', $AccountNameLabel);
+    $template->assign( 'AccountNumberLabel', $AccountNumberLabel);
+    $template->assign( 'InvoiceEmailedLabel', $InvoiceEmailedLabel);
+    $template->assign( 'PostCopyLabel', $PostCopyLabel);
+    
+    
+    $template->assign( 'invoice_no', $invoiceNo);
+    $template->assign( 'invoice_date', $dao->date_raised);
+    $template->assign( 'invoice_due_date', $dao->date_due);
+    $template->assign( 'addressed_to', $dao->addressed_to);
+    $template->assign( 'attention_of', $dao->attention_of);
+    $template->assign( 'address_line1', $dao->address_line1);
+    $template->assign( 'address_line2', $dao->address_line2);
+    $template->assign( 'address_line3', $dao->address_line3);
+    $template->assign( 'town', $dao->town);
+    $template->assign( 'city', $dao->city);
+    $template->assign( 'postcode', $dao->postcode);
+    $template->assign( 'country', $dao->country);
+    $template->assign( 'special_instructions', $dao->special_instructions);
+    $template->assign( 'item_descr_column_heading', $dao->item_descr_column_heading);
+    $template->assign( 'invoice_amount', $dao->invoice_amount);
+    $template->assign( 'net_amount', $dao->net_amount);
+    $template->assign( 'fee_amount', $dao->fee_amount);
+    $template->assign( 'company_tax_no', $dao->company_tax_no);
+    $template->assign( 'post_invoice', $dao->post_invoice);
+    $template->assign( 'email_invoice_address', $dao->email_invoice_address);
+    $template->assign( 'email_school_address', $dao->email_school_address);
+    $template->assign( 'invoice_paid', $dao->invoice_paid);
+    $template->assign( 'additional_message', $dao->additional_message);
+
+    switch ($dao->currency) {
+        case 'EUR':
+            $encodedCurrency = '&#128;';
+            break;
+        default:
+            $encodedCurrency = '&#163;';
+            break;
+    }
+    
+    $template->assign( 'currency', $encodedCurrency);
+    $template->assign( 'currencyCode', $dao->currency);
+
+    $sql = "
+SELECT    description
+,         qty
+,         unit_amount
+,         net_amount
+,         fee_amount
+,         vat
+FROM      civicrm_invoice_item a
+WHERE     invoice_id = %1
+ORDER BY  id asc
+";
+
+    $params  = array( 1 => array( $invoiceID   , 'Integer' ));
+
+    $invoiceItems = array();
+    $invoiceItemsDAO = CRM_Core_DAO::executeQuery( $sql, $params );
+    $i = 0;
+    CRM_Core_Error::debug_log_message( 'invoiceItemsDAO sql = '.$sql, $out = false );
+    while ( $invoiceItemsDAO->fetch( ) ) {
+        $i++;
+        CRM_Core_Error::debug_log_message( 'invoiceItemsDAO Loop = '.$i, $out = false );
+        $invoiceItems[$i]['description'] = $invoiceItemsDAO->description;
+        $invoiceItems[$i]['qty'] = $invoiceItemsDAO->qty;
+        $invoiceItems[$i]['unit_amount'] = $invoiceItemsDAO->unit_amount;
+        $invoiceItems[$i]['net_amount'] = $invoiceItemsDAO->net_amount;
+        $invoiceItems[$i]['fee_amount'] = $invoiceItemsDAO->fee_amount;
+        $invoiceItems[$i]['vat'] = $invoiceItemsDAO->vat;
+
+    }
+
+    $template->assign( 'invoiceItems', $invoiceItems);
+    
+    $civicrm_invoiceRoot = dirname( __FILE__ ) . DIRECTORY_SEPARATOR;
+    $css_path = $civicrm_invoiceRoot . "templates" . DIRECTORY_SEPARATOR . 'Invoice' . DIRECTORY_SEPARATOR;
+    $template->assign( 'CssAndImagePath', $css_path);
+
+    $htmlinvoice = trim($template->fetch('Invoice/PDFInvoice.tpl'));
+		//echo $invoiceNo;echo "Invoice in HTML format: <br />".$htmlinvoice; exit;
+    if($calling == "external"){	// Calling from cron job
+			   $fileContent = civicrm_invoice_civicrm_pageRun_html_to_pdf( $htmlinvoice, "{$invoiceNo}.pdf", $calling );
+			   return array($fileContent, $dao);
+		}
+		else {
+		     civicrm_invoice_civicrm_pageRun_html_to_pdf($htmlinvoice, "{$invoiceNo}.pdf");
+		}    
+
+}
+
+
+function civicrm_invoice_civicrm_pageRun_html_to_pdf($text, $fileName = 'civicrm.pdf', $calling = "internal") {
+
+    require_once 'packages/dompdf/dompdf_config.inc.php';
+    spl_autoload_register('DOMPDF_autoload');
+    $dompdf = new DOMPDF( );
+
+    $values = array( );
+    if (!is_array( $text )) {
+        $values =  array( $text );
+    } 
+    else {
+        $values =& $text;
+    }            
+
+    $html = "";
+    foreach ( $values as $value ) {
+        $html .= "{$value}\n";
+    }
+        
+    $html = iconv('UTF-8','Windows-1252//TRANSLIT', $html);
+        
+    $dompdf->load_html( $html );
+    $dompdf->set_paper ('a4', 'portrait');
+    //echo $html;exit;
+    $dompdf->render( );
+    		    
+		if($calling == "external") { // Calling from cron job
+			 $fileContent = $dompdf->output();
+			 return $fileContent;
+		}
+		else {
+			$dompdf->stream( $fileName );
+		}
+
+}
+                                               
+function civicrm_invoice_xmlMenu( &$files ) {
+
+  # Add the PDF invoice menus
+  $files[] =
+        dirname( __FILE__ ) . DIRECTORY_SEPARATOR .
+        'invoice.xml';
+  
+}

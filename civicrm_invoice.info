@@ -1,0 +1,12 @@
+;
+; Copyright (C) Miller Technology 2010
+; @license GNU General Public License version 2 or later
+;
+
+name = CiviCRM PDF Invoice
+description = CiviCRM View PDF Invoice for contribution
+version = 1.0
+dependencies[] = civicrm
+package = CiviCRM
+core = 6.x
+php = 5.2

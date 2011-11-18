@@ -1,0 +1,84 @@
+// $Id: INSTALL.txt,v 1.0 2010/11/29 04:07:11 posco Exp $
+
+=================================
+CiviCRM PDF Invoice Install File  
+=================================
+
+Requirements
+-------------------------------
+
+This module requires CiviCRM 3.2.x or greater and Drupal 6.x.
+
+Installation Instructions
+-------------------------------
+
+To install the CiviCRM PDF Invoice, move the 
+`civicrm_invoice` directory to your sites' `modules/civicrm/drupal/modules/` directory.
+Then navigate to Administer > Site building > Modules and enable the CiviCRM PDF Invoice module.
+
+Refer to the Drupal documentation for further information on how to install modules.
+
+Run the civicrm_invoice.sql (found inside the civicrm_invoice modules folder) in the database which will 
+create 2 invoice related tables.
+
+How to Use
+-------------------------------
+
+After moving the module folder and running the sql file in the database , navigate to Administer > Permission 
+and assign appropriate permission for Civicrm Invoice module (access civicrm invoice)
+
+For company and bank related information which are to be displayed in the PDF invoice  
+Open civicrm_invoice.module file in any text editor and edit the company and site specific information 
+in line number starting from 13
+
+For the company logo to be displayed in the invoice
+Copy your company logo into templates/Invoice folder under the 'civicrm_invoice' modules folder
+Filename 	    : logo.gif 					
+Suggested Dimension : 110 x 90;
+
+Once all the initial setup are done, you can see a 'View Invoice' button on Contribution View page.
+Clicking the button will generate PDF invoice for the particular contribution.
+
+Templates to be used for email
+-------------------------------
+
+Please create two message templates using the below names 
+
+1. Membership Invoice
+2. Participant Invoice
+
+These templates are used in the cron job as the mail message when sending the Invoice PDF as attachment.
+
+Cron Job
+-------------------------------
+
+This module also comes with a cron job, to send automatic emails for completed and pending contributions. 
+Please copy the file civicrm_module/bin/send_invoice_email.php to 'civicrm/bin/' directory and set the script to run as cron job for every 5 minutes
+
+wget -O - -q -t 1 --no-check-certificate --post-data="name=<username>&pass=<pass>&key=<key>" http://example.org/sites/all/modules/civicrm/bin/send_invoice_email.php
+
+Important: To save the Invoice PDFs in the system , please specify the path in line 9 of send_invoice_email.php
+
+Please note: As of now the cron is restricted to event fees and member dues only.
+
+Disclaimer
+-------------------------------
+
+All information and materials provided here are provided "as-is" by MTL technical team based on their vast knowledge and experience. 
+MTL shall not be liable for any damages, including  direct, indirect, incidental, special or consequential damages for loss of profits, revenue, data or data use, 
+incurred by you or any third party in connection with the use of this information or these materials. 
+You may reach MTL technical team by emailing on rajesh AT millertech.co.uk for any further assistance.
+
+Contact Information
+-------------------------------
+
+All feedback and comments of a technical nature (including support questions)
+and for all other comments you can reach me at the following e-mail address. Please
+include "CiviCRM Invoice Module" somewhere in the subject.
+
+rajesh AT millertech.co.uk
+
+Copyright
+-------------------------------
+
+Copyright (C) Miller Technology 2010
